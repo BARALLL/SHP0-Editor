@@ -24,6 +24,7 @@ class Exportshp0(bpy.types.Operator, ExportHelper):
         print("running write_shp0_file...")
         file = open(filepath, 'w', encoding='utf-8')
         
+        write_file_header(context, file, setting)
         write_shp0_header(context, file, setting)
         
         #for animations in animList
@@ -38,13 +39,23 @@ class Exportshp0(bpy.types.Operator, ExportHelper):
     
     
     
-    def write_shp0_header(context, file, setting):
+    def write_file_header(context, file, setting):
         f.write(struct.pack("<4s", b"SHP0")) # magic number
         f.write(struct.pack("<i", 0)) # placeholder for file length
         f.write(struct.pack("<i", setting.version)) # SHP0 version number
         f.write(struct.pack("<i", 0)) # offset to BRRES file
         f.write(struct.pack("<4i", 0)) # placeholder for section offsets
         f.write(struct.pack("<4s", setting.filename))
+        
+        
+    def write_shp0_header(context, file, setting):
+        f.write(struct.pack("<i", 0))
+        f.write(struct.pack("<H", setting.frame))
+        f.write(struct.pack("<H", len(context.object.vertex_groups)))
+        f.write(struct.pack("<i", setting.loop))    
+        #need to check if works bc loop is bool => correctly translated to 0x00/0x01 ?
+
+
 
 
 
@@ -87,9 +98,11 @@ class AnimManager(bpy.types.Operator):
         groups = context.object.vertex_groups
         
         if(len(groups) > scene.animIndex):
-            AnimManager.addAnim(self, context)
+            for i in range (len(groups) - scene.animIndex):
+                AnimManager.addAnim(self, context)
         elif(len(groups) < scene.animIndex):
-            AnimManager.removeAnim(self, context)
+            for i in range (scene.animIndex - len(groups)):
+                AnimManager.removeAnim(self, context)
         return {'FINISHED'}
     
     
@@ -97,7 +110,6 @@ class AnimManager(bpy.types.Operator):
         scene = context.scene
         newAnim = scene.animGroup.add()
         newAnim.name = "Animation " + str(len(scene.animGroup) - 1)
-        newAnim.enable
         scene.animIndex = len(scene.animGroup) - 1
         return {'FINISHED'}
     
@@ -134,6 +146,7 @@ class EditorPanel(bpy.types.Panel):
         
         param = scene.addonProps
         anim = scene.animGroup
+        
         groups = obj.vertex_groups
 
         
@@ -148,10 +161,15 @@ class EditorPanel(bpy.types.Panel):
         
         layout.operator('export.shp0')
         layout.operator('anim.update')
+        
         if(groups.active_index == -1):
             col.label(text="Please add a vertex group first")
+        elif(groups.active_index > scene.animIndex):
+            col.label(text="Please Update Animation first")
         else:
             col.prop(anim[groups.active_index], "enable")
+        
+
 
     #how to use obj datas:
         #me = obj.data
@@ -189,3 +207,44 @@ def unregister():
 
 if __name__ == "__main__":
     register()
+
+
+
+
+
+'''
+roadmap:
+    currently done:
+        file header (but length of file still need to be done with
+        ftell() then fseek(0x04) once all the file is written)
+        
+        shp0 header
+
+    need to be done:
+        section 0:
+            Animation Data
+                use of shape keys for animation entries
+                0x00 bitflags: done 
+                (but still need the update animation button, 
+                hopefully find a way to get rid of it)
+                and better coord between vg size and animIndex (off by 1 when size vg -1)
+                
+                0x04/8? name offset to section one vg name
+                0x0A number of shape keys
+                
+                0x0C-0x10-0x14 TBD
+            
+            Animation Entry
+                "header"
+                    this shape key number of kf
+                    padding
+                    1/(max kf number)
+                followed by kf entries: (size N*12)
+                    frame number
+                    shape key animation value (0-1 morph)
+                    interpolation tangent value (f-curve or shapeKey.interpolation data struct?)
+                    
+        section 1:
+            list of vertex group names 
+            
+'''
