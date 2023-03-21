@@ -1,4 +1,5 @@
 import bpy
+import struct
 
 # ExportHelper is a helper class, defines filename and
 # invoke() function which calls the file selector.
@@ -15,47 +16,52 @@ class Exportshp0(bpy.types.Operator, ExportHelper):
     bl_label = "Export shp0"
     filename_ext = ".shp0"
 
-    def execute(self, context):
-        return write_shp0_file(context, self.filepath, self.setting)
     
     
-    
-    def write_shp0_file(context, filepath, setting):
-        print("running write_shp0_file...")
-        file = open(filepath, 'w', encoding='utf-8')
+    def write_file_header(context, f, setting):
+        f.write(struct.pack(">4s", b"SHP0")) # magic number
+        f.write(struct.pack(">i", 0)) # placeholder for file length
+        f.write(struct.pack(">i", setting.version)) # SHP0 version number
+        f.write(struct.pack(">i", 0)) # offset to BRRES file
+        f.write(struct.pack(">4i", 0,0,0,0)) # placeholder for section offsets
+        f.write(struct.pack(">i", 0)) #placeholder for offset to file name location in file
         
-        write_file_header(context, file, setting)
-        write_shp0_header(context, file, setting)
+        #f.write(struct.pack(">4s", setting.filename))
         
-        #for animations in animList
-            #write anim header
-            #write anim entry header
-            #for kf in kfList
-                #write frame number, anim value, hermite slope interpolation
-        
-        file.close()
-
-        return {'FINISHED'}
-    
-    
-    
-    def write_file_header(context, file, setting):
-        f.write(struct.pack("<4s", b"SHP0")) # magic number
-        f.write(struct.pack("<i", 0)) # placeholder for file length
-        f.write(struct.pack("<i", setting.version)) # SHP0 version number
-        f.write(struct.pack("<i", 0)) # offset to BRRES file
-        f.write(struct.pack("<4i", 0)) # placeholder for section offsets
-        f.write(struct.pack("<4s", setting.filename))
-        
-        
-    def write_shp0_header(context, file, setting):
-        f.write(struct.pack("<i", 0))
-        f.write(struct.pack("<H", setting.frame))
-        f.write(struct.pack("<H", len(context.object.vertex_groups)))
-        f.write(struct.pack("<i", setting.loop))    
+    def write_shp0_header(context, f, setting):
+        f.write(struct.pack(">i", 0))
+        f.write(struct.pack(">H", setting.frame))
+        f.write(struct.pack(">H", len(context.object.vertex_groups)))
+        f.write(struct.pack(">i", setting.loop))    
         #need to check if works bc loop is bool => correctly translated to 0x00/0x01 ?
 
 
+    def update_file_length(context, f, setting):
+        length = f.tell()
+        f.seek(4, 0)
+        f.write(struct.pack(">i", length))
+        
+        
+    def write_shp0_file(self, context, setting):
+        print("running write_shp0_file...")
+        with open(self.filepath, 'wb') as f:
+        
+            Exportshp0.write_file_header(context, f, setting)
+            Exportshp0.write_shp0_header(context, f, setting)
+            Exportshp0.update_file_length(context, f, setting)
+        
+            #for animations in animList
+                #write anim header
+                #write anim entry header
+                #for kf in kfList
+                    #write frame number, anim value, hermite slope interpolation
+
+
+        return {'FINISHED'}    
+        
+        
+    def execute(self, context):
+        return Exportshp0.write_shp0_file(self, context, context.scene.addonProps)
 
 
 
@@ -76,7 +82,6 @@ class Anim(bpy.types.PropertyGroup):
 class settings(bpy.types.PropertyGroup):
 
     #File variables
-    
     filename: bpy.props.StringProperty(name="File Name", description="name under which the file will be exported")
     loop : bpy.props.BoolProperty(name='Loop', default=False, description="Does the animation should loop?")
     version: bpy.props.IntProperty(name='Version', min = 1, max = 15, default=4,  description="Version number. It is recommended to leave it at 4, other versions are unknown")
@@ -180,8 +185,8 @@ class EditorPanel(bpy.types.Panel):
                 #if g.group in groups:
                     
 
-    def execute(self, context):
-        return write_shp0_file(context, self.filepath, self.use_setting)
+    #def execute(self, context):
+        #return write_shp0_file(context, self.filepath, self.use_setting)
 
 
 classes = [AnimManager, Exportshp0, Anim, settings, EditorPanel]
